@@ -42,7 +42,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rag'
+    'rag',
+    'chat',
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -74,6 +76,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'peanutai.wsgi.application'
+ASGI_APPLICATION = 'peanutai.asgi.application'
 
 
 # Database
@@ -138,7 +141,7 @@ STATIC_URL = '/static/'
 os.environ["OPENAI_API_TYPE"] = "azure"
 os.environ["OPENAI_API_KEY"] = "dfd5d971667d4790aad0785d5d0b2765"
 os.environ["AZURE_OPENAI_ENDPOINT"] = "http://api.wlai.vip"
-
+os.environ['DUBO_USE_SELECTOR_EVENTLOOP'] = '1'
 #通义千问
 dashscope.api_key = 'sk-f21bb011a0fa475c96daec36fe597046'
 
