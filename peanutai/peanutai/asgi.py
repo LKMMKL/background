@@ -1,23 +1,24 @@
-"""
-WSGI config for peanutai project.
-
-It exposes the WSGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/2.2/howto/deployment/wsgi/
-"""
-
+# """
+# WSGI config for peanutai project.
+#
+# It exposes the WSGI callable as a module-level variable named ``application``.
+#
+# For more information on this file, see
+# https://docs.djangoproject.com/en/2.2/howto/deployment/wsgi/
+# """
+#
 import os
 from channels.routing import ProtocolTypeRouter, URLRouter
-from django.core.wsgi import get_wsgi_application
+from django.core.asgi import get_asgi_application
 from channels.auth import AuthMiddlewareStack
-from peanutai import chat
+from peanutai import routing
+
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'peanutai.settings')
 
 application = ProtocolTypeRouter({
-    "http": get_wsgi_application(),
+    "http": get_asgi_application(),
     "websocket": URLRouter(
-            chat.routing.websocket_urlpatterns
-        )
+        routing.websocket_urlpatterns
+    )
 })
