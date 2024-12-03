@@ -76,6 +76,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'peanutai.wsgi.application'
+
 ASGI_APPLICATION = 'peanutai.asgi.application'
 
 
