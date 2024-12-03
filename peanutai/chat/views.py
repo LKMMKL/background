@@ -5,8 +5,10 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
+        app_name = self.scope['url_route']['kwargs']['app_name']
         await self.accept()
-
+        # threading.Thread(target=self.sync_cases, args=()).start()
+        
     def disconnect(self, close_code):
         pass
 
