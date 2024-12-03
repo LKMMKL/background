@@ -1,11 +1,11 @@
 import json
 
-from channels.generic.websocket import WebsocketConsumer
+from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 
-class ChatConsumer(WebsocketConsumer):
-    def connect(self):
-        self.accept()
+class ChatConsumer(AsyncJsonWebsocketConsumer):
+    async def connect(self):
+        await self.accept()
 
     def disconnect(self, close_code):
         pass
