@@ -1,31 +1,59 @@
+import asyncio
 import json
+import threading
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.layers import get_channel_layer
-from dashscope.audio.tts import SpeechSynthesizer
 import dashscope
-from dashscope.aigc.generation import AioGeneration
+from dashscope.audio.tts import SpeechSynthesizer
 
-class ChatConsumer(AsyncJsonWebsocketConsumer):
+from rag.reponse import response_msg
+from rag.utils import GptClient, MmilvusClient, MongoClient
+
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+class train(AsyncJsonWebsocketConsumer):
     async def connect(self):
-        app_name = self.scope['url_route']['kwargs']['app_name']
+        self.user_id = self.scope['url_route']['kwargs']['user_id']
         await self.accept()
-        # threading.Thread(target=self.sync_cases, args=()).start()
+       
         
-    def disconnect(self, close_code):
+    async def disconnect(self, close_code):
+        
         pass
 
-    def receive(self, text_data):
-        text_data_json = json.loads(text_data)
-        message = text_data_json["message"]
-        print(message)
+    async def receive(self, text_data):
+        data = json.loads(text_data)
+        if(data["type"] == "start_train"):
+            title = data['title']
+            platorm = data['platform']
+            threading.Thread(target=self.sync_retrive, args=(platorm,title)).start()
+        # threading.Thread(target=self.sync_retrive, args=("platorm","title")).start()
+        
+        
 
 
-        self.send(text_data=json.dumps({"message": message}))
+    def sync_retrive(self, platform, title):
+        try:
+            milvus = MmilvusClient()
+            monogo = MongoClient()
+            gpt = GptClient()
+            cols = milvus.query(text=title)     
+            if len(cols) == 0:
+               raise Exception("content not exist in milvus")
+            doc = monogo.get_contents_by_milvus(cols)
+            msg = gpt.invoke(title, doc)
+            loop.run_until_complete(self._async_send_message(response_msg(code=200, message=msg)))
+            # asyncio.run_coroutine_threadsafe(self._async_send_message(dict(msg="nihao")), loop)
 
-
-
+        except Exception as ex:
+            loop.run_until_complete(self._async_send_message(response_msg(code=500, message=ex)))
+    
+    async def _async_send_message(self, _msg):
+        await self.send_json(_msg)
+        print(_msg)
+        
 class test_train_page1_audio(AsyncWebsocketConsumer):
     async def connect(self):
         # 接受 WebSocket 连接
