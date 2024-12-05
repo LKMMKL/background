@@ -36,6 +36,15 @@ class GptClient():
         except Exception as ex:
             return ex
 
+    def invoke_for_outline(self, outline):
+        try:
+            messages = [
+                SystemMessage(content=f"背景信息：{self.knowledge}提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{self.title}培训"),
+                HumanMessage(content=f"{outline}是课程中的内容提纲，请按照提纲，详细讲述提纲相关内容。"),
+            ]
+            return GptClient.__get_client().invoke(messages).content
+        except Exception as ex:
+            return ex
 
 class MongoClient():
 

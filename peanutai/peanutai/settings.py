@@ -159,3 +159,5 @@ MILVUS_URL = 'http://219.135.168.178:56985/data'
 MILVUS_COLLECTION_NAME = 'doc_slice256_qwen_v31024'
 
 DASHSCOPE_API_KEY = "sk-afb66b016f6b48e4a556ea3bdcf589fa"
+
+
