@@ -20,12 +20,12 @@ from bson import ObjectId
 import threading
 import time
 import asyncio
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+from chat.models import TrainData, TrainType
+from chat.thread_main import ThreadMain
 
 class train(AsyncJsonWebsocketConsumer):
     async def connect(self):
-        self.user_id = self.scope['url_route']['kwargs']['user_id']
+        # self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.data_list: List[TrainData] = []
         await self.accept()
 
@@ -35,24 +35,42 @@ class train(AsyncJsonWebsocketConsumer):
         pass
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
-        if(data["action"] == "start_train"):
-            title = data['title']
-            platorm = data['platform']
-            threading.Thread(target=self.sync_retrive, args=(platorm,title)).start()
+        try:
+            data = json.loads(text_data)
 
-        # threading.Thread(target=self.sync_retrive, args=("platorm","title")).start()
+            if data["action"] == "startTraining":
+                title = data['title']
+                platorm = data['platform']
+                threading.Thread(target=self.sync_retrive, args=(platorm,title)).start()
+            elif data["action"] == "getPage2Text":
+                self.send_page_text(data["action"], TrainType.page2.value)
+            elif data["action"] == "getPage2Audio":
+                self.send_page_audio(data["action"], TrainType.page2.value)
+            elif data["action"] == "getPage3Text":
+                self.send_page_text(data["action"], TrainType.page3.value)
+            elif data["action"] == "getPage3Audio":
+                self.send_page_audio(data["action"], TrainType.page3.value)
+            elif data["action"] == "getPage4Text":
+                self.send_page_text(data["action"], TrainType.page4.value)
+            elif data["action"] == "getPage4Audio":
+                self.send_page_audio(data["action"], TrainType.page4.value)
+        except Exception as ex:
+            print(f"{ex}")
+            asyncio.run_coroutine_threadsafe(self._async_send_message(response_msg(code=500, message=f"{ex}")),ThreadMain.get_instance().loop)
 
-    def get_page_text(self, action):
+    def send_page_text(self, action, type):
+        res = dict()
         for li in self.data_list:
-            if li.type == action:
-                return li.text
+            if li.type == type:
+                res = li.get_text()
+        asyncio.run_coroutine_threadsafe(self._async_send_message(dict(code=200, type=action, message=res)),ThreadMain.get_instance().loop)
 
-
-    def get_page_audio(self, action):
+    def send_page_audio(self, action, type):
+        res = dict()
         for li in self.data_list:
-            if li.type == action:
-                return li.audio_text
+            if li.type == type:
+                res = li.get_audio_bytes()
+        asyncio.run_coroutine_threadsafe(self._async_send_message(dict(code=200, type=action, message=res)),ThreadMain.get_instance().loop)
 
     def sync_retrive(self, platform, title):
         try:
@@ -74,24 +92,21 @@ class train(AsyncJsonWebsocketConsumer):
             #按照提纲去提问
             index = 1
             for outline in outlines:
-                # 获取gpt文本
-                _res = gpt.invoke_for_outline(outline)
-                if len(_res) > 0:
-                    _train_data = TrainData(index, _res)
-                    self.data_list.append(_train_data)
-                    index = index + 1
-            for li in self.data_list:
-                print(f"{li.id} {li.type} {li.text}")
-                print(f"==================================")
-            # loop.run_until_complete(self._async_send_message(response_msg(code=200, message=msg)))
-            # asyncio.run_coroutine_threadsafe(self._async_send_message(dict(msg="nihao")), loop)
+
+                _train_data = TrainData(index)
+                self.data_list.append(_train_data)
+                index = index + 1
+                threading.Thread(target=_train_data.load_text, args=(outline,gpt)).start()
 
         except Exception as ex:
-            loop.run_until_complete(self._async_send_message(response_msg(code=500, message=f"{ex}")))
+            asyncio.run_coroutine_threadsafe(self._async_send_message(response_msg(code=500, message=f"{ex}")),ThreadMain.get_instance().loop)
+
 
     async def _async_send_message(self, _msg):
-        await self.send_json(_msg)
-        print(_msg)
+        try:
+            await self.send_json(_msg)
+        except Exception as ex:
+            print(f"{ex}")
 
 
 async def model_predict(message):
