@@ -126,6 +126,15 @@ async def model_predict(message):
     return responses
 
 
+class MilvusHandler:
+    _client = None
+
+    @staticmethod
+    def get_client():
+        if MilvusHandler._client is None:
+            MilvusHandler._client = MilvusClient(uri=settings.MILVUS_URL)
+        return MilvusHandler._client
+
 
 class test_train_page1_audio(AsyncWebsocketConsumer):
     # 用一个字典来存储每个会话的线程
@@ -171,6 +180,8 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
                 await self.handle_get_page6_text(json_data)
             elif action == 'getPage6Audio':
                 await self.handle_get_page6_audio(json_data)
+            elif action == 'sendUserAudio':
+                await self.handle_user_audio(json_data)
             else:
                 await self.send(text_data=json.dumps({
                     'error': 'Unknown action'
@@ -347,6 +358,35 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
         )
         return result
 
+    @staticmethod
+    def qwen_audio_covert_text(url):
+        task_response=dashscope.audio.asr.Transcription.async_call(
+            model='paraformer-v2',
+            file_urls=[url],
+            language_hints=['zh', 'en']
+        )
+        response=dashscope.audio.asr.Transcription.wait(task=task_response.output.task_id)
+        if response.status_code == HTTPStatus.OK:
+            result_data = response.output
+            # 提取 transcription_url
+            transcription_url = result_data.get("results", [{}])[0].get("transcription_url", None)
+            if transcription_url:
+                # 下载 transcription 文件内容
+                try:
+                    response = requests.get(transcription_url, timeout=30)
+                    response.raise_for_status()
+                    # 如果需要进一步处理返回的数据，可以解析 JSON
+                    transcription_data = response.json()
+                    transcript_text = transcription_data["transcripts"][0].get("text", "")
+                    print(f"Transcript Text: {transcript_text}")
+                    return transcript_text
+                except Exception as e:
+                    print(f"Failed to fetch transcription: {e}")
+            else:
+                print("No transcription URL found in the response.")
+        else:
+            print(f"Failed to process audio. HTTP status code: {response.status_code}")
+
     def process_rag_predict(self, provider, title, sessionId):
         # 在这里处理传递的参数
 
@@ -358,12 +398,12 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
         )
         if resp.status_code == HTTPStatus.OK:
             slice_embedding = resp["output"]["embeddings"][0]["embedding"]
-            milvusClient = MilvusClient(uri=settings.MILVUS_URL)
-            res = milvusClient.query(
+            milvus_client = MilvusHandler.get_client()
+            res = milvus_client.query(
                 collection_name=settings.MILVUS_COLLECTION_NAME,
                 embed_content=slice_embedding,
                 filter="",
-                limit=10,
+                limit=1,
                 output_fields=out_fileds)
 
             try:
@@ -377,6 +417,9 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
                         background.append(doc.content)
                 backgrounds = "".join(background)
                 print(len(backgrounds))
+                backgrounds = {'type': 'backgrounds',
+                               'backgrounds': backgrounds}
+                self.data_list.append(backgrounds)
 
                 # 模型开始推理
                 # Page2
@@ -520,3 +563,53 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
                 print(f"获取内容失败: {e}")
         else:
             print("千问获取slice向量失败")
+
+
+    async def handle_user_audio(self, json_data):
+        try:
+            audio_base64 = json_data.get('data', {})
+            audio_origion = base64.b64decode(audio_base64)
+            file_name = f"{uuid.uuid4()}.wav"
+            save_directory = "/Users/e3/Desktop/user_audio/"
+            # 保存音频文件
+            audio_file_path = os.path.join(save_directory, file_name)  # 设置本地存储路径
+            with open(audio_file_path, "wb") as audio_file:
+                audio_file.write(audio_origion)
+            url = f'https://datapeanut.com/audio_path/{file_name}'
+            #录音转文本
+            user_question_text = self.qwen_audio_covert_text(url)
+            type = 'backgrounds'
+            while not any(item['type'] == type for item in self.data_list):
+                await asyncio.sleep(1)
+            bg = [item for item in self.data_list if item['type'] == type]
+            if bg:
+                backgrounds = bg[0].get('backgrounds', None)  # 提取 'backgrounds' 的值
+            else:
+                print("data list No backgrounds found.")
+            #推理答案
+            message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你已经给跨境同学讲完20分钟课程，现在进入10分钟答疑环节,背景信息：{backgrounds}"}]
+            message.append({'role': 'user', 'content': f"{user_question_text},注意要在50字以内."})
+            response= self.qwen_model_predict(message)
+            if response["status_code"] == HTTPStatus.OK:
+                answeer_text =  response["output"]["choices"][0]["message"].get("content", "")
+                print("answeer_text",answeer_text)
+                #生成语音
+                result = self.qwen_generate_audio(answeer_text)
+                if result.get_audio_data() is not None:
+                    audio_data = result.get_audio_data()
+                    audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+
+            else:
+                print("predictPage2AudioText请求失败")
+            # Send the response back to the client
+            await self.send(text_data=json.dumps({
+                "type": "audioReceived",
+                "respose_audio": audio_base64
+            }))
+
+        except Exception as e:
+            print("error",e)
+            await self.send(text_data=json.dumps({
+                'error': f"Error processing user audio: {str(e)}"
+            }))
+
