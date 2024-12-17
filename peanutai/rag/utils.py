@@ -4,7 +4,7 @@ from bson import ObjectId
 import dashscope
 from django.conf import settings
 from langchain_openai import AzureChatOpenAI
-from pymilvus import MilvusClient
+from pymilvus import MilvusClient, Collection
 from langchain_core.messages import HumanMessage, SystemMessage
 from rag.models import DocSlice256
 
@@ -62,8 +62,8 @@ class MongoClient():
             return doc.content
         return ""
 
-    def get_contents_by_milvus(self, cols):
-        _ids = [obj["slice_id"] for obj in cols]
+    def get_contents_by_milvus(self, _ids):
+        # _ids = [obj["slice_id"] for obj in cols]
         doc = ""
         for _id in _ids:
             doc += self.get_content_by__id(_id)
@@ -76,18 +76,15 @@ class MmilvusClient():
     @classmethod
     def __get_client(cls):
         if cls.__client is None:
-            cls.__client = MilvusClient(uri=settings.MILVUS_URL)
+            cls.__client = Collection(name='doc_slice256_qwen_v31024')
         return cls.__client
 
-    def query(self, text, limit=3, out_fileds=["_slice_id"]):
-        res = MmilvusClient.__get_client().query(
-            collection_name=settings.MILVUS_COLLECTION_NAME,
-            embed_content=embed_content(text),
-            filter="",
-            limit=limit,
-            output_fields=out_fileds)
-        return res
-
+    def query(self, text, limit=3, out_fileds=["slice_id"]):
+        res = MmilvusClient.__get_client().search(
+            data=[embed_content(text)], anns_field="slice_embedding", limit=3, param={"metric_type": "IP", "top_k": 3}, output_fields=out_fileds)
+        if len(res) > 0:
+            return res[0].ids
+        return []
 class TTSClient():
     __client = None
 

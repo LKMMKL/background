@@ -78,6 +78,7 @@ class train(AsyncJsonWebsocketConsumer):
             monogo = MongoClient()
             gpt = GptClient()
             cols = milvus.query(text=title)
+            print(cols)
             if len(cols) == 0:
                 raise Exception("content not exist in milvus")
             doc = monogo.get_contents_by_milvus(cols)
@@ -134,7 +135,6 @@ class MilvusHandler:
         if MilvusHandler._client is None:
             MilvusHandler._client = MilvusClient(uri=settings.MILVUS_URL)
         return MilvusHandler._client
-
 
 class test_train_page1_audio(AsyncWebsocketConsumer):
     # 用一个字典来存储每个会话的线程
@@ -397,14 +397,17 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
             dimension=1024
         )
         if resp.status_code == HTTPStatus.OK:
-            slice_embedding = resp["output"]["embeddings"][0]["embedding"]
+            embedding = resp["output"]["embeddings"][0]["embedding"]
             milvus_client = MilvusHandler.get_client()
             res = milvus_client.query(
                 collection_name=settings.MILVUS_COLLECTION_NAME,
-                embed_content=slice_embedding,
-                filter="",
-                limit=1,
+                embed_content=embedding,
+                filter="title == '1-速卖通-新手运营的一天-202208'",
+                limit=10,
+                vector_field="slice_embedding",
+                metric_type="IP",
                 output_fields=out_fileds)
+            print("res", res)
 
             try:
                 # 提取所有 slice_id
@@ -423,21 +426,23 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
 
                 # 模型开始推理
                 # Page2
+                message = []
                 message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
                 message.append({'role': 'user', 'content': f"给这个课程做一个提纲，列三点作为PPT展示文本，你将围绕这三个部分顺序展开培训,注意只能生成返回3点内容，每一点不超过10个字。"})
                 response = self.qwen_model_predict(message)
+                response_text_page2 = response["output"]["choices"][0]["message"].get("content", "")
                 if response["status_code"] == HTTPStatus.OK:
                     #print("res", response)
                     page2Text = {
                         'type': 'page2Text',
                         "code": int(response["status_code"]),
-                        "message": response["output"]["choices"][0]["message"].get("content", "")
+                        "message": response_text_page2
                     }
                     print("predictPage2Text", page2Text)
                     self.data_list.append(page2Text)
                     #生成语音文本
-                    message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                    message.append({'role': 'user', 'content': f"{page2Text}是课程中的内容提纲，请按照提纲，用演讲的口吻描述即将要讲的课程内容。注意不需要向别人问好,注意50-100字"})
+                    message.append({"role":"assistant","content": response_text_page2})
+                    message.append({'role': 'user', 'content': f"请按照提纲，用交流的口吻描述即将要讲的课程内容。注意不需要向别人问好,注意200-400字"})
                     response = self.qwen_model_predict(message)
                     if response["status_code"] == HTTPStatus.OK:
                         predictPage2AudioText =  response["output"]["choices"][0]["message"].get("content", "")
@@ -458,20 +463,21 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
 
 
                 # Page3
-                message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                message.append({'role': 'user', 'content': f"给这个课程大纲{page2Text['message']}的‘第一点主题’提炼出6点培训方面,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。注意不要出现非分点的其他文字或总结"})
+                message.append({"role":"assistant","content": predictPage2AudioText})
+                message.append({'role': 'user', 'content': f"给这个课程大纲{response_text_page2}的‘第一点主题’提炼出6点培训方面,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。注意不要出现非分点的其他文字或总结"})
                 response = self.qwen_model_predict(message)
+                response_text_page3 = response["output"]["choices"][0]["message"].get("content", "")
                 if response["status_code"] == HTTPStatus.OK:
                     page3Text = {
                         'type': 'page3Text',
                         "code": int(response["status_code"]),
-                        "message": response["output"]["choices"][0]["message"].get("content", "")
+                        "message": response_text_page3
                     }
                     print("predictPage3Text", page3Text)
                     self.data_list.append(page3Text)
                     #生成语音文本
-                    message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                    message.append({'role': 'user', 'content': f"{page3Text['message']}是课程划分的的层面，用演讲的口吻展开讨论课程内容。注意不需要向别人问好,不用分点,注意要在200-400字"})
+                    message.append({"role":"assistant","content": response_text_page3})
+                    message.append({'role': 'user', 'content': f"用交流的口吻展开讨论课程内容,不用分点,注意要在400-600字"})
                     response = self.qwen_model_predict(message)
                     if response["status_code"] == HTTPStatus.OK:
                         predictPage3AudioText =  response["output"]["choices"][0]["message"].get("content", "")
@@ -492,20 +498,21 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
 
 
                 # Page4
-                message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                message.append({'role': 'user', 'content': f"给这个课程大纲{page2Text['message']}的‘第2点主题’提炼出6点培训方面,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。注意不要出现非分点的其他文字或总结"})
+                message.append({"role":"assistant","content": predictPage3AudioText})
+                message.append({'role': 'user', 'content': f"给这个课程大纲{response_text_page2}的‘第2点主题’提炼出6点培训方面,注意不要跟前面培训过的内容有任何重复,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。注意不要出现非分点的其他文字或总结"})
                 response = self.qwen_model_predict(message)
+                response_text_page4 = response["output"]["choices"][0]["message"].get("content", "")
                 if response["status_code"] == HTTPStatus.OK:
                     page4Text = {
                         'type': 'page4Text',
                         "code": int(response["status_code"]),
-                        "message": response["output"]["choices"][0]["message"].get("content", "")
+                        "message": response_text_page4
                     }
                     print("predictPage4Text", page4Text)
                     self.data_list.append(page4Text)
                     #生成语音文本
-                    message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                    message.append({'role': 'user', 'content': f"{page4Text['message']}是课程划分的的层面，用演讲的口吻展开讨论课程内容。注意不需要向别人问好,不用分点,注意要在200-400字"})
+                    message.append({"role":"assistant","content": response_text_page4})
+                    message.append({'role': 'user', 'content': f"用演讲的口吻展开讨论课程内容。注意不要跟前面培训过的内容有任何重复,注意不需要向别人问好,不用分点,注意要在400-600字"})
                     response = self.qwen_model_predict(message)
                     if response["status_code"] == HTTPStatus.OK:
                         predictPage4AudioText =  response["output"]["choices"][0]["message"].get("content", "")
@@ -526,20 +533,21 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
 
 
                 # Page5
-                message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                message.append({'role': 'user', 'content': f"给这个课程大纲{page2Text['message']}的‘第3点主题’提炼出6点培训方面,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。。注意不要出现非分点的其他文字或总结"})
+                message.append({"role":"assistant","content": predictPage4AudioText})
+                message.append({'role': 'user', 'content': f"给这个课程大纲{response_text_page2}的‘第3点主题’提炼出6点培训方面,注意不要跟前面培训过的内容有任何重复,每一点内容可以展开描述不超过10个字,参照示例：违规获取评价：刷单或虚假评价行为。。注意不要出现非分点的其他文字或总结"})
                 response = self.qwen_model_predict(message)
+                response_text_page5 = response["output"]["choices"][0]["message"].get("content", "")
                 if response["status_code"] == HTTPStatus.OK:
                     page5Text = {
                         'type': 'page5Text',
                         "code": int(response["status_code"]),
-                        "message": response["output"]["choices"][0]["message"].get("content", "")
+                        "message": response_text_page5
                     }
-                    print("predictPage4Text", page5Text)
+                    print("predictPage5Text", page5Text)
                     self.data_list.append(page5Text)
                     #生成语音文本
-                    message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你正在给学生做20分钟的{title}培训计划,背景信息：{backgrounds}"}]
-                    message.append({'role': 'user', 'content': f"{page5Text['message']}是课程划分的的层面，用演讲的口吻展开讨论课程内容。注意不需要向别人问好,不用分点,注意要在200-400字"})
+                    message.append({"role":"assistant","content": response_text_page5})
+                    message.append({'role': 'user', 'content': f"用演讲的口吻展开讨论课程内容。注意不要跟前面培训过的内容有任何重复,注意不需要向别人问好,不用分点,注意要在400-600字"})
                     response = self.qwen_model_predict(message)
                     if response["status_code"] == HTTPStatus.OK:
                         predictPage5AudioText =  response["output"]["choices"][0]["message"].get("content", "")
@@ -588,7 +596,7 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
                 print("data list No backgrounds found.")
             #推理答案
             message = [{"role":"system","content": f"提示词：你是一个速卖通的AI培训老师，你已经给跨境同学讲完20分钟课程，现在进入10分钟答疑环节,背景信息：{backgrounds}"}]
-            message.append({'role': 'user', 'content': f"{user_question_text},注意要在50字以内."})
+            message.append({'role': 'user', 'content': f"{user_question_text},注意要在100字以内."})
             response= self.qwen_model_predict(message)
             if response["status_code"] == HTTPStatus.OK:
                 answeer_text =  response["output"]["choices"][0]["message"].get("content", "")
@@ -612,4 +620,5 @@ class test_train_page1_audio(AsyncWebsocketConsumer):
             await self.send(text_data=json.dumps({
                 'error': f"Error processing user audio: {str(e)}"
             }))
+
 

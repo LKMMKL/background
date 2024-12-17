@@ -1,10 +1,8 @@
 from bson import ObjectId
-import django
-import django.conf
 from django.test import TestCase
 from langchain_openai import AzureChatOpenAI
 
-from rag.utils import GptClient, MongoClient, embed_content
+from rag.utils import GptClient, embed_content, MmilvusClient
 from rag.models import DocSlice256
 
 
@@ -12,12 +10,14 @@ from rag.models import DocSlice256
 
 class RAGTestCase(TestCase):
      def test_mongodb(self):
-         doc = MongoClient().get_content_by__id(_id='67309cd339b780cc48f6beab')
-         print(doc)
+
+         milvus = MmilvusClient()
+         cols = milvus.query(text='盗图和信用炒作')
+         print(cols)
         #  d = DocSlice256.objects.get(_id=ObjectId('67309cd339b780cc48f6beab'))
         #  print(d)
          ...
-         
+
      def test_tongyi(self):
         #  print(embed_content('盗图和信用炒作'))
         ...
