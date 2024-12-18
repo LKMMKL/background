@@ -42,6 +42,10 @@ class train(AsyncJsonWebsocketConsumer):
                 title = data['title']
                 platorm = data['platform']
                 threading.Thread(target=self.sync_retrive, args=(platorm,title)).start()
+            elif data["action"] == "getPage1Text":
+                    self.send_page_text(data["action"], TrainType.page1.value)
+            elif data["action"] == "getPage1Audio":
+                    self.send_page_audio(data["action"], TrainType.page1.value)
             elif data["action"] == "getPage2Text":
                 self.send_page_text(data["action"], TrainType.page2.value)
             elif data["action"] == "getPage2Audio":
@@ -69,7 +73,7 @@ class train(AsyncJsonWebsocketConsumer):
         res = dict()
         for li in self.data_list:
             if li.type == type:
-                res = li.get_audio_bytes()
+                res = li.get_audio_list()
         asyncio.run_coroutine_threadsafe(self._async_send_message(dict(code=200, type=action, message=res)),ThreadMain.get_instance().loop)
 
     def sync_retrive(self, platform, title):
@@ -86,18 +90,25 @@ class train(AsyncJsonWebsocketConsumer):
             outline_str = gpt.invoke(title, doc)
             if len(outline_str) < 0:
                 raise Exception("outline_str is empty.")
-            train_data = TrainData(TrainType.page1, outline_str)
+            train_data = TrainData(TrainType.page1.value, outline_str)
+            train_data.load_title(outline_str,gpt)
             self.data_list.append(train_data)
             #拆分提纲
             outlines = outline_str.split("\n")
-            #按照提纲去提问
-            index = 1
+            #按照提纲去提问， 从第二页开始
+            index = 2
             for outline in outlines:
-
+                # 每页可能有不同的描述
+                if index == TrainType.page2.value:
+                    outline =  f"{outline}是课程中的内容提纲，请按照提纲，详细讲述提纲相关内容, 并把内容分成6点。"
+                elif index == TrainType.page3.value:
+                    outline =  f"{outline}是课程中的内容提纲，请按照提纲，详细讲述提纲相关内容, 并把内容分成6点。"
+                elif index == TrainType.page4.value:
+                    outline =  f"{outline}是课程中的内容提纲，请按照提纲，详细讲述提纲相关内容, 并把内容分成6点。"
                 _train_data = TrainData(index)
                 self.data_list.append(_train_data)
-                index = index + 1
                 threading.Thread(target=_train_data.load_text, args=(outline,gpt)).start()
+                index = index + 1
 
         except Exception as ex:
             asyncio.run_coroutine_threadsafe(self._async_send_message(response_msg(code=500, message=f"{ex}")),ThreadMain.get_instance().loop)
